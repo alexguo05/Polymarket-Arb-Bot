@@ -1,0 +1,40 @@
+[
+  {
+    "market_id": "123456",
+    "question": "Who will win the 2024 Election?",
+    "bucket_id": "Politics_2024-11-05",
+    "conditions": [
+      {
+        "condition_id": "cond_001",
+        "outcome_label": "Candidate A",
+        "price": 0.35,
+        "volume": 5000000.0
+      },
+      {
+        "condition_id": "cond_002",
+        "outcome_label": "Candidate B",
+        "price": 0.30,
+        "volume": 4500000.0
+      },
+      {
+        "condition_id": "cond_003",
+        "outcome_label": "Candidate C",
+        "price": 0.15,
+        "volume": 2000000.0
+      },
+      {
+        "condition_id": "cond_004",
+        "outcome_label": "Candidate D",
+        "price": 0.10,
+        "volume": 1500000.0
+      },
+      {
+        "condition_id": "123456_OTHER",
+        "outcome_label": "Other (Combined)",
+        "price": 0.10,
+        "volume": 1000000.0
+      }
+    ]
+  }
+]
+
