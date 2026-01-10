@@ -200,60 +200,249 @@ def create_semantic_buckets(df: pd.DataFrame) -> pd.DataFrame:
     if 'topic' not in df.columns:
         df['topic'] = 'Unknown'
     if 'normalized_end_date' not in df.columns:
-        df['normalized_end_date'] = df['end_date_iso']
+        df['normalized_end_date'] = df.get('end_date_iso', '')
+    
+    # Handle None/NaN values
+    df['topic'] = df['topic'].fillna('Unknown').astype(str)
+    df['normalized_end_date'] = df['normalized_end_date'].fillna('').astype(str)
     
     # Create bucket_id
-    df['bucket_id'] = df['topic'].astype(str) + '_' + df['normalized_end_date'].astype(str)
+    df['bucket_id'] = df['topic'] + '_' + df['normalized_end_date']
+    
+    # Replace empty dates with empty string
+    df['bucket_id'] = df['bucket_id'].str.replace('_$', '', regex=True)
     
     print(f"Semantic Bucketing: Created {df['bucket_id'].nunique()} unique buckets")
     
     return df
 
 
+def group_yes_no_pairs(group: pd.DataFrame) -> List[Dict]:
+    """
+    Group Yes/No pairs together for NegRisk markets.
+    Returns a list of condition dictionaries, where NegRisk outcomes are grouped.
+    """
+    conditions = []
+    processed_labels = set()
+    
+    # Convert to list of dicts for easier manipulation
+    rows = group.to_dict('records')
+    
+    for row in rows:
+        label = row['outcome_label']
+        
+        # Skip if already processed as part of a pair
+        if label in processed_labels:
+            continue
+        
+        # Check if this is a "Not X" label (NegRisk No token)
+        if label.startswith('Not '):
+            base_label = label[4:]  # Remove "Not " prefix
+            
+            # Look for corresponding Yes token with the base label
+            yes_row = None
+            for r in rows:
+                if r['outcome_label'] == base_label:
+                    yes_row = r
+                    break
+            
+            if yes_row:
+                # Create grouped condition with both Yes and No
+                condition = {
+                    'outcome_label': base_label,
+                    'yes': {
+                        'condition_id': yes_row['condition_id'],
+                        'price': float(yes_row['price']),
+                        'volume': float(yes_row['volume'])
+                    },
+                    'no': {
+                        'condition_id': row['condition_id'],
+                        'price': float(row['price']),
+                        'volume': float(row['volume'])
+                    }
+                }
+                conditions.append(condition)
+                processed_labels.add(base_label)
+                processed_labels.add(label)
+            else:
+                # No matching Yes token, add as standalone No
+                condition = {
+                    'outcome_label': label,
+                    'condition_id': row['condition_id'],
+                    'price': float(row['price']),
+                    'volume': float(row['volume'])
+                }
+                conditions.append(condition)
+                processed_labels.add(label)
+        
+        # Check if this is a base label that might have a "Not X" counterpart
+        else:
+            # Look for corresponding "Not {label}" token
+            not_label = f"Not {label}"
+            no_row = None
+            for r in rows:
+                if r['outcome_label'] == not_label:
+                    no_row = r
+                    break
+            
+            if no_row:
+                # Create grouped condition with both Yes and No
+                condition = {
+                    'outcome_label': label,
+                    'yes': {
+                        'condition_id': row['condition_id'],
+                        'price': float(row['price']),
+                        'volume': float(row['volume'])
+                    },
+                    'no': {
+                        'condition_id': no_row['condition_id'],
+                        'price': float(no_row['price']),
+                        'volume': float(no_row['volume'])
+                    }
+                }
+                conditions.append(condition)
+                processed_labels.add(label)
+                processed_labels.add(not_label)
+            else:
+                # No matching No token, add as standalone (binary market or single outcome)
+                condition = {
+                    'outcome_label': label,
+                    'condition_id': row['condition_id'],
+                    'price': float(row['price']),
+                    'volume': float(row['volume'])
+                }
+                conditions.append(condition)
+                processed_labels.add(label)
+    
+    return conditions
+
+
 def apply_top4_plus1_rule(df: pd.DataFrame) -> pd.DataFrame:
     """
     For markets with >5 conditions:
-    - Keep top 4 by volume
+    - Group Yes/No pairs together for NegRisk markets
+    - Keep top 4 outcome groups by volume (using max volume from yes/no pair)
     - Aggregate remaining into "Other" condition
     """
     reduced_markets = []
     
     for market_id, group in df.groupby('market_id'):
-        # Sort by volume descending
-        sorted_group = group.sort_values('volume', ascending=False).reset_index(drop=True)
+        # Get market metadata (should be same for all rows in group)
+        market_question = group['question'].iloc[0] if 'question' in group.columns else ''
         
-        if len(sorted_group) <= 5:
-            # Keep as is (5 or fewer conditions)
-            conditions = sorted_group[['condition_id', 'outcome_label', 'price', 'volume']].to_dict('records')
+        # Get date from normalized_end_date or end_date_iso
+        market_date = ''
+        if 'normalized_end_date' in group.columns:
+            date_value = group['normalized_end_date'].iloc[0]
+            if not pd.isna(date_value) and date_value != '':
+                market_date = str(date_value)
+        elif 'end_date_iso' in group.columns:
+            date_value = group['end_date_iso'].iloc[0]
+            if not pd.isna(date_value) and date_value != '':
+                market_date = str(date_value)
+        
+        # Safely get bucket_id, handle missing column or NaN values
+        if 'bucket_id' in group.columns:
+            bucket_id_value = group['bucket_id'].iloc[0]
+            # Convert NaN/None to empty string
+            if pd.isna(bucket_id_value) or bucket_id_value == '':
+                market_bucket_id = ''
+            else:
+                market_bucket_id = str(bucket_id_value)
+        else:
+            market_bucket_id = ''
+        
+        # Group Yes/No pairs together
+        grouped_conditions = group_yes_no_pairs(group)
+        
+        # Calculate effective volume for sorting (use max of yes/no volumes, or single volume)
+        def get_effective_volume(cond):
+            if 'yes' in cond and 'no' in cond:
+                # Use max volume from the pair
+                return max(cond['yes'].get('volume', 0), cond['no'].get('volume', 0))
+            else:
+                # Single condition (binary market)
+                return cond.get('volume', 0)
+        
+        # Sort grouped conditions by effective volume
+        grouped_conditions.sort(key=get_effective_volume, reverse=True)
+        
+        # Apply Top 4 + 1 rule
+        if len(grouped_conditions) <= 5:
+            # Keep as is (5 or fewer outcome groups)
+            conditions = grouped_conditions
         else:
             # Top 4 + 1 rule
-            top_4 = sorted_group.iloc[:4]
-            others = sorted_group.iloc[4:]
+            top_4 = grouped_conditions[:4]
+            others = grouped_conditions[4:]
             
-            # Get top 4 conditions
-            conditions = top_4[['condition_id', 'outcome_label', 'price', 'volume']].to_dict('records')
+            # Calculate aggregate price and volume for "Other"
+            other_yes_price = 0.0
+            other_no_price = 0.0
+            other_yes_volume = 0.0
+            other_no_volume = 0.0
+            has_pairs = False
+            
+            for cond in others:
+                if 'yes' in cond and 'no' in cond:
+                    # NegRisk pair
+                    has_pairs = True
+                    other_yes_price += cond['yes']['price']
+                    other_no_price += cond['no']['price']
+                    other_yes_volume += cond['yes']['volume']
+                    other_no_volume += cond['no']['volume']
+                else:
+                    # Single condition (binary market - shouldn't happen in NegRisk, but handle it)
+                    other_yes_price += cond.get('price', 0)
+                    other_yes_volume += cond.get('volume', 0)
             
             # Create "Other" condition
-            other_condition = {
-                'condition_id': f"{market_id}_OTHER",
-                'outcome_label': 'Other (Combined)',
-                'price': others['price'].sum(),
-                'volume': others['volume'].sum()
-            }
-            conditions.append(other_condition)
+            # If we have pairs (NegRisk market), create grouped structure with both yes and no
+            if has_pairs:
+                other_condition = {
+                    'outcome_label': 'Other (Combined)',
+                    'yes': {
+                        'condition_id': f"{market_id}_OTHER_YES",
+                        'price': other_yes_price,
+                        'volume': other_yes_volume
+                    },
+                    'no': {
+                        'condition_id': f"{market_id}_OTHER_NO",
+                        'price': other_no_price,
+                        'volume': other_no_volume
+                    }
+                }
+            else:
+                # Only single conditions (should be rare, but handle it)
+                other_condition = {
+                    'outcome_label': 'Other (Combined)',
+                    'condition_id': f"{market_id}_OTHER",
+                    'price': other_yes_price,
+                    'volume': other_yes_volume
+                }
+            
+            conditions = top_4 + [other_condition]
         
-        # Get market metadata (should be same for all rows in group)
-        market_question = sorted_group['question'].iloc[0] if 'question' in sorted_group.columns else ''
-        market_bucket_id = sorted_group['bucket_id'].iloc[0] if 'bucket_id' in sorted_group.columns else ''
-        
-        reduced_markets.append({
+        # Build market dict with correct field order: market_id, question, date, conditions
+        market_dict = {
             'market_id': market_id,
-            'question': market_question,
-            'bucket_id': market_bucket_id,
-            'conditions': conditions
-        })
+            'question': market_question
+        }
+        
+        # Add date field immediately after question if available
+        if market_date:
+            market_dict['date'] = market_date
+        
+        # Add conditions
+        market_dict['conditions'] = conditions
+        
+        # Only include bucket_id if it's not "Unknown_*" (add at end if needed)
+        if market_bucket_id and not market_bucket_id.startswith('Unknown_'):
+            market_dict['bucket_id'] = market_bucket_id
+        
+        reduced_markets.append(market_dict)
     
-    print(f"Top 4 + 1 Rule: {len(df)} conditions -> {sum(len(m['conditions']) for m in reduced_markets)} conditions")
+    print(f"Top 4 + 1 Rule: {len(df)} raw conditions -> {sum(len(m['conditions']) for m in reduced_markets)} grouped conditions")
     print(f"  Reduced {df['market_id'].nunique()} markets")
     
     return reduced_markets
@@ -274,7 +463,7 @@ def reduce_data(raw_json_path: str, output_json_path: str, enrich_from_api: bool
     
     # Step 1: Load raw data
     print("\n[Step 1] Loading raw data...")
-    with open(raw_json_path, 'r') as f:
+    with open(raw_json_path, 'r', encoding='utf-8') as f:
         raw_data = json.load(f)
     
     print(f"  Loaded {len(raw_data)} records")
@@ -330,8 +519,8 @@ def reduce_data(raw_json_path: str, output_json_path: str, enrich_from_api: bool
     
     # Step 8: Save output
     print("\n[Step 8] Saving reduced data...")
-    with open(output_json_path, 'w') as f:
-        json.dump(reduced_markets, f, indent=2)
+    with open(output_json_path, 'w', encoding='utf-8') as f:
+        json.dump(reduced_markets, f, indent=2, ensure_ascii=False)
     
     print(f"  Saved {len(reduced_markets)} markets to {output_json_path}")
     
@@ -342,7 +531,9 @@ def reduce_data(raw_json_path: str, output_json_path: str, enrich_from_api: bool
     print(f"Original records: {len(raw_data)}")
     print(f"Final markets: {len(reduced_markets)}")
     print(f"Total conditions: {sum(len(m['conditions']) for m in reduced_markets)}")
-    print(f"Unique buckets: {len(set(m['bucket_id'] for m in reduced_markets))}")
+    # Count unique buckets (only count markets that have bucket_id)
+    unique_buckets = len(set(m.get('bucket_id') for m in reduced_markets if 'bucket_id' in m and m.get('bucket_id')))
+    print(f"Unique buckets: {unique_buckets}")
     print("=" * 80)
 
 

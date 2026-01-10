@@ -1,40 +1,93 @@
 [
   {
     "market_id": "123456",
-    "question": "Who will win the 2024 Election?",
-    "bucket_id": "Politics_2024-11-05",
+    "question": "Highest temperature in Seoul on January 11?",
+    "bucket_id": "Weather_2026-01-11",
     "conditions": [
       {
-        "condition_id": "cond_001",
-        "outcome_label": "Candidate A",
-        "price": 0.35,
-        "volume": 5000000.0
+        "outcome_label": "-5°C",
+        "yes": {
+          "condition_id": "cond_001_YES",
+          "price": 0.35,
+          "volume": 5000000.0
+        },
+        "no": {
+          "condition_id": "cond_001_NO",
+          "price": 0.65,
+          "volume": 5000000.0
+        }
       },
       {
-        "condition_id": "cond_002",
-        "outcome_label": "Candidate B",
-        "price": 0.30,
-        "volume": 4500000.0
+        "outcome_label": "-4°C",
+        "yes": {
+          "condition_id": "cond_002_YES",
+          "price": 0.30,
+          "volume": 4500000.0
+        },
+        "no": {
+          "condition_id": "cond_002_NO",
+          "price": 0.70,
+          "volume": 4500000.0
+        }
       },
       {
-        "condition_id": "cond_003",
-        "outcome_label": "Candidate C",
-        "price": 0.15,
-        "volume": 2000000.0
+        "outcome_label": "-3°C",
+        "yes": {
+          "condition_id": "cond_003_YES",
+          "price": 0.15,
+          "volume": 2000000.0
+        },
+        "no": {
+          "condition_id": "cond_003_NO",
+          "price": 0.85,
+          "volume": 2000000.0
+        }
       },
       {
-        "condition_id": "cond_004",
-        "outcome_label": "Candidate D",
-        "price": 0.10,
-        "volume": 1500000.0
+        "outcome_label": "-2°C",
+        "yes": {
+          "condition_id": "cond_004_YES",
+          "price": 0.10,
+          "volume": 1500000.0
+        },
+        "no": {
+          "condition_id": "cond_004_NO",
+          "price": 0.90,
+          "volume": 1500000.0
+        }
       },
       {
-        "condition_id": "123456_OTHER",
         "outcome_label": "Other (Combined)",
-        "price": 0.10,
-        "volume": 1000000.0
+        "yes": {
+          "condition_id": "123456_OTHER_YES",
+          "price": 0.10,
+          "volume": 1000000.0
+        },
+        "no": {
+          "condition_id": "123456_OTHER_NO",
+          "price": 0.90,
+          "volume": 1000000.0
+        }
+      }
+    ]
+  },
+  {
+    "market_id": "789012",
+    "question": "Will Team A win?",
+    "bucket_id": "Sports_2026-01-12",
+    "conditions": [
+      {
+        "condition_id": "cond_789_YES",
+        "outcome_label": "Team A wins",
+        "price": 0.60,
+        "volume": 3000000.0
+      },
+      {
+        "condition_id": "cond_789_NO",
+        "outcome_label": "Team B wins",
+        "price": 0.40,
+        "volume": 3000000.0
       }
     ]
   }
 ]
-

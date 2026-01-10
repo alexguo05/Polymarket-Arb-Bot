@@ -500,8 +500,8 @@ def save_events_json(events: list[PolymarketEvent], filename: str = "polymarket_
         }
         data.append(event_dict)
     
-    with open(filename, "w") as f:
-        json.dump(data, f, indent=2)
+    with open(filename, "w", encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
     
     print(f"\nSaved {len(events)} events to {filename}")
 
